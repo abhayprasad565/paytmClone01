@@ -21,10 +21,6 @@ const userSchema = new mongoose.Schema({
         required: true,
         trim: true,
     },
-    amount: {
-        type: Number,
-        default: 0,
-    },
 
 })
 const accountSchema = new mongoose.Schema({
@@ -40,7 +36,33 @@ const accountSchema = new mongoose.Schema({
     }
 });
 
+const transactionSchema = new mongoose.Schema({
+    sender: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true,
+        immutable: true,
+    },
+    receiver: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true,
+        immutable: true,
+    },
+    balance: {
+        type: Number,
+        required: true,
+        immutable: true,
+    },
+    time: {
+        type: Date,
+        default: Date.now(),
+        immutable: true,
+    }
+});
+
 const User = mongoose.model('User', userSchema);
 const Account = mongoose.model('Account', accountSchema);
+const Transaction = mongoose.model('Transaction', transactionSchema);
 
-module.exports = { User, Account };
+module.exports = { User, Account, Transaction };

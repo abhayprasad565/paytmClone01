@@ -5,6 +5,8 @@ const zod = require("zod");
 const { JWTSECRET } = require("../config");
 const { User, Account } = require("../db");
 const authMilddileware = require('../Middilewares/authMiddileware');
+const bcrypt = require('bcrypt');
+
 const signupSchema = zod.object({
     username: zod.string(),
     password: zod.string(),
@@ -21,60 +23,78 @@ const updateSchema = zod.object({
     lastName: zod.string().optional(),
 });
 
+// Function to hash a password
+const hashPassword = async (password) => {
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+    return hashedPassword;
+};
+
+// Function to verify a password
+const verifyPassword = async (password, hashedPassword) => {
+    const match = await bcrypt.compare(password, hashedPassword);
+    return match;
+};
 // signup func
 const SignUp = async (req, res, next) => {
-    const inputUserObj = req.body.user;
+    // console.log(req.body.user);
+    let inputUserObj = req.body.user;
     // vallidate the schema
-    const { sucess } = signupSchema.safeParse(inputUserObj);
-    if (!sucess) {
-        res.status(400).json({ message: "Email already presend / Incorrect Input" });
+    const { success } = signupSchema.safeParse(inputUserObj);
+    if (!success) {
+        return res.status(400).json({ message: " Incorrect Input" });
     }
     // check if user already presend
     const UserPresentCheck = await User.findOne({ username: inputUserObj.username })
-    if (UserPresentCheck._id) {
-        res.status(400).json({ message: "Email already presend / Incorrect Input" });
+    if (UserPresentCheck) {
+        return res.status(400).json({ message: "Email already present" });
     }
     // create new user
-    const dbUser = await new User.create({ ...inputUserObj });
+    inputUserObj.password = await hashPassword(inputUserObj.password);
+    const dbUser = await User.create({ ...inputUserObj });
     // create new Account
-    const dbAccount = await new Account.create({
+    const dbAccount = await Account.create({
         userId: dbUser._id,
         balance: 1 + Math.floor(Math.random() * 10000),
     })
-    dbUser.save();
+    await dbUser.save();
+    await dbAccount.save();
     // return response
     res.json({ message: "User Created Sucessfully", success: true })
 }
 // login func
+
+// login
 const login = async (req, res, next) => {
-    const { sucess } = loginSchema.safeParse(req.body.user);
-    if (!sucess) res.status(411).json("Invalid Credentials");
+    const { success } = loginSchema.safeParse(req.body.user);
+    if (!success) return res.status(411).json({ message: "Invalid Credentials" });
+    //console.log(req);
     const Inputuser = req.body.user;
+    //console.log(Inputuser);
     const user = await User.findOne({ username: Inputuser.username });
-    if (user.password != Inputuser.password) res.status(401).json({ error: true, message: "Invalid password" });
+    const match = await verifyPassword(Inputuser.password, user.password)
+    if (!match) return res.status(401).json({ error: true, message: "Invalid password" });
     else {
         // Get the current timestamp
         const currentTimestamp = Date.now();
         // Calculate the expiration timestamp (15 days ahead)
         const expirationTimestamp = currentTimestamp + 15 * 24 * 60 * 60 * 1000;
-
+        //console.log(JWTSECRET + " This is jwt")
         const token = jwt.sign({
             username: Inputuser.username,
             userId: user._id,
             exp: expirationTimestamp,
         }, JWTSECRET);
         // return json web token
-        res.json({ message: "User Created Sucessfully", token: token })
+        return res.json({ message: "User LoggedIn Sucessfully", token: token })
     }
 }
-
-
 // signup user
 router.post("/signup", SignUp);
 // login user
 router.post("/login", login);
 // find users via name
-router.get("bulk", authMilddileware, async (req, res) => {
+router.get("/bulk", authMilddileware, async (req, res) => {
     const filter = req.query.filter || "";
     const users = await User.find({
         $or: [
@@ -91,11 +111,22 @@ router.get("bulk", authMilddileware, async (req, res) => {
         }))
     })
 })
-
+// get user data
+router.get("/detail", authMilddileware, async (req, res) => {
+    const user = await User.findById(req.userId);
+    res.json({
+        success: true, user: {
+            firstName: user.firstName,
+            lastName: user.lastName,
+            username: user.username,
+            _id: user._id,
+        }
+    })
+})
 // update user
 router.put("/", authMilddileware, async (req, res) => {
-    const { sucess } = updateSchema.safeParse(req.body.user);
-    if (!sucess) res.status(411).json({ error: true, message: "Wrong data sent" });
+    const { success } = updateSchema.safeParse(req.body.user);
+    if (!success) return res.status(411).json({ error: true, message: "Wrong data sent" });
     // find user
     const user = await User.findOne({ username: req.username });
     const { firstName, lastName, password } = req.body.user;
@@ -105,8 +136,9 @@ router.put("/", authMilddileware, async (req, res) => {
     if (password) user.password = password;
     await user.save();
     // return response
-    res.json({ success: true, message: "User updated Sucessfully" });
+    return res.json({ success: true, message: "User updated Sucessfully" });
 })
+
 
 
 module.exports = router;
